@@ -6,7 +6,7 @@
 
 **Unsaubere Fahrzeug-Inserate direkt aus den Suchergebnissen melden, mit eigenen Bausteinen und ohne die Liste zu verlassen.**
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue?style=flat-square)](https://github.com/RainbowLabsInc/Auto_Super_Meldescript/raw/main/script.user.js)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue?style=flat-square)](https://github.com/RainbowLabsInc/Auto_Super_Meldescript/raw/main/script.user.js)
 [![Plattform](https://img.shields.io/badge/plattform-mobile.de%20%C2%B7%20AutoScout24-green?style=flat-square)](#-wo-es-läuft)
 [![Userscript](https://img.shields.io/badge/Tampermonkey-Violentmonkey-black?style=flat-square&logo=tampermonkey)](#%EF%B8%8F-installation)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -21,7 +21,7 @@
 ---
 
 > [!IMPORTANT]
-> **Frühe Version (0.3.0).** **AutoScout24** ist an der Live-Seite getestet (Stand 10/2026). Bei **mobile.de** stammen Melde-Dialog, Gründe und die Anfrage fürs direkte Melden aus einer echten Inseratsseite und ihrem Script, getestet ist das bisher nur an nachgebauten Seiten: mobile.de lässt die Testumgebung nicht auf die Seite. Noch gar nicht geprüft ist der Aufbau der Suchergebnisse von mobile.de. Details unter [🧪 Getestet](#-getestet).
+> **Frühe Version (0.3.1).** **AutoScout24** ist an der Live-Seite getestet (Stand 10/2026). Bei **mobile.de** stammen Melde-Dialog, Gründe und die Anfrage fürs direkte Melden aus einer echten Inseratsseite und ihrem Script; die Testumgebung kommt nicht auf die Seite, geprüft ist das daher an nachgebauten Seiten und anhand von Screenshots der Live-Seite. Details unter [🧪 Getestet](#-getestet).
 
 Wer auf mobile.de oder AutoScout24 ein Auto sucht, kennt das: **„1 €“**, Preise, die laut Beschreibung gar nicht gelten, Kilometerstände, die nicht zu den Fotos passen, längst verkaufte Fahrzeuge und Inserate, die nach Vorkasse-Betrug aussehen.
 
@@ -74,7 +74,7 @@ Ohne Baustein öffnet **„Ohne Baustein: nur … öffnen“** das leere offizie
 
 | Seite | Übersicht (Button) | „Im Formular prüfen“ | Direkt melden |
 |---|---|---|---|
-| **mobile.de** | Suchergebnisse auf `suchen.mobile.de` (Aufbau noch nicht an der Live-Seite geprüft) | Das Inserat öffnet sich, das Script klickt **„Dieses Inserat beanstanden“** und füllt den Dialog „Was möchtest du beanstanden?“ aus | ✅ ohne Login, wie der Dialog |
+| **mobile.de** | Suchergebnisse auf `suchen.mobile.de/fahrzeuge/search.html` (die Suchmaske auf `www.mobile.de/s/auto` hat noch keine Inserate) | Das Inserat öffnet sich, das Script klickt **„Dieses Inserat beanstanden“** und füllt den Dialog „Was möchtest du beanstanden?“ aus | ✅ ohne Login, wie der Dialog |
 | **AutoScout24** | Ergebnislisten auf `www.autoscout24.de` | Die Melde-Seite `/report-fraud/<Inserats-ID>` öffnet sich direkt (dieselbe Seite wie „Inserat melden“ am Inserat) | ✅ ohne Login, wie die Melde-Seite |
 
 **Nicht dabei:** Die Startseite `www.mobile.de` (die Karten dort haben keinen Link, den das Script lesen kann) und „Nutzer melden“ bei mobile.de. Das gibt es laut mobile.de nur im Nachrichten-Postfach (Drei-Punkte-Menü im Nachrichtenkopf), nicht an Inseraten.
@@ -190,10 +190,10 @@ Alles Seitenspezifische (Link-Muster, Melde-Link, Gründe, Erfolgstexte, Anfrage
 
 | Umgebung | Stand |
 |---|---|
-| AutoScout24, Live-Seite (Chromium, 10/2026) | ✅ Button an allen 20 Karten einer Ergebnisseite, unter dem Preis; Klick navigiert nicht; Menü mit Gründen; Melde-Seite im Popup mit Kategorie, Problem, Text, E-Mail und Name ausgefüllt, Häkchen nicht gesetzt, Absenden bleibt gesperrt; Nachfrage beim Schließen ohne Meldung; direkte Meldung erzeugt dieselbe Anfrage wie das Formular. **Beim Testen wurde keine echte Meldung abgeschickt** (die Anfrage wurde abgefangen). Ob AutoScout24 die direkte Meldung annimmt, zeigt sich erst beim ersten echten Einsatz. |
+| AutoScout24, Live-Seite (Chromium, 10/2026) | ✅ Button an allen 20 Karten einer Ergebnisseite und an den Karten „Am meisten gesucht“ der Startseite, unter dem Preis; Klick navigiert nicht; Menü mit Gründen; Melde-Seite im Popup mit Kategorie, Problem, Text, E-Mail und Name ausgefüllt, Häkchen nicht gesetzt, Absenden bleibt gesperrt; Nachfrage beim Schließen ohne Meldung; direkte Meldung erzeugt dieselbe Anfrage wie das Formular. **Beim Testen wurde keine echte Meldung abgeschickt** (die Anfrage wurde abgefangen). Ob AutoScout24 die direkte Meldung annimmt, zeigt sich erst beim ersten echten Einsatz. |
 | mobile.de, Melde-Dialog im Popup | ✅ mit dem Markup einer echten Inseratsseite (10/2026), Verhalten nach dem Script der Seite nachgebaut: Melde-Link gefunden, Dialog statt Cookie-Banner hervorgehoben, Reiter gewechselt, Grund ausgewählt, Text und E-Mail eingesetzt, Häkchen nicht gesetzt, Bestätigung nach dem Abschicken erkannt |
 | mobile.de, direkt melden | ⏳ nur gegen eine abgefangene Anfrage getestet: Methode, Adresse, Kopfzeilen und Inhalt wie im Script der Seite, Ablehnung wird angezeigt. An der echten Seite noch nicht, weil mobile.de die Testumgebung sperrt. |
-| mobile.de, Suchergebnisse | ⏳ noch nicht geprüft. Getestet nur an nachgebauten Karten (Inserats-Links in beiden Formen, Preis, Neuaufbau der Liste) |
+| mobile.de, Suchergebnisse | ⏳ teilweise: Laut Screenshot der Live-Seite (Tampermonkey, 10/2026) erscheint der Button an den Inseraten. Bei Inseraten mit Fußnote am Preis und Finanzierungs-Kasten saß er im Kasten; behoben in 0.3.1, geprüft an einer nachgebauten Karte mit demselben Aufbau, an der Live-Seite noch nicht |
 | Firefox, Violentmonkey | ⏳ noch nicht getestet |
 
 Die Seiten ändern ihr Frontend regelmäßig. Funktioniert etwas nicht, hilft ein [Issue](https://github.com/RainbowLabsInc/Auto_Super_Meldescript/issues) mit:
@@ -210,6 +210,7 @@ Bitte **keine** Cookies, Tokens oder persönlichen Daten mitschicken.
 
 | Version | Änderungen |
 |---|---|
+| **0.3.1** | mobile.de: Bei Inseraten mit Fußnote am Preis („29.900 €¹“) und Finanzierungs-Kasten landete der Button im Kasten und `{preis}` war die Monatsrate. Jetzt zählt der größte Betrag der Karte, Raten und Versicherung („… ab 277 € mtl.“) werden übergangen, und eine Fußnote außerhalb von `<sup>` stört nicht mehr |
 | **0.3.0** | mobile.de: **direkt melden** aus dem Menü, mit derselben Anfrage wie der Dialog auf der Inseratsseite (ohne Login); Textfeld des Dialogs bekannt; die Bausteine „Falsche Fahrzeugangaben“ und „Verdacht auf Betrug“ haben jetzt einen Grund („Sonstiges › Andere Gründe“). Namensfeld im Menü nur noch bei AutoScout24 |
 | **0.2.0** | AutoScout24: Karten über ihre Inserats-ID erkannt, Melde-Seite direkt im Popup, alle Gründe (Kategorie › Problem), E-Mail und Name, **direkt melden** aus dem Menü; Button bleibt klickbar, wenn AutoScout24 beim Überfahren einen Link über die Karte legt. mobile.de: Melde-Link „Dieses Inserat beanstanden“, alle 17 Gründe in drei Reitern, E-Mail-Feld, Bestätigungstext. Zwei neue Bausteine („Vorkasse verlangt“, „Händler gibt sich als privat aus“), Bausteine wählen jetzt auch den Grund |
 | **0.1.0** | Erste Version: Melden-Button in den Ergebnislisten von mobile.de und AutoScout24, Menü mit Bausteinen, offizieller Melde-Dialog im Popup mit eingesetztem Text und E-Mail, „Gemeldet“-Markierung, Einstellungen |

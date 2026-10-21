@@ -5,7 +5,7 @@
 // @author        RainbowlabsInc
 // @copyright     2026, RainbowlabsInc
 // @license       MIT
-// @version       0.3.0
+// @version       0.3.1
 // @icon          https://github.com/RainbowLabsInc/Auto_Super_Meldescript/raw/main/assets/icon48.png
 // @homepage      https://github.com/RainbowLabsInc/Auto_Super_Meldescript
 // @updateURL     https://github.com/RainbowLabsInc/Auto_Super_Meldescript/raw/main/script.user.js
@@ -920,25 +920,42 @@
         return text;
     };
 
+    // Fußnote direkt hinter dem Preis, die nicht als <sup> ausgezeichnet ist (mobile.de: „29.900 €¹“
+    // als eigenes Element, Stand 10/2026). Nur hinter einer Zahl mit €, damit „€ 12“ ein Preis bleibt.
+    const stripFootnote = (text) => text.trim().replace(/(\d[\d.,]*-*\s*€)\s*[\d¹²³]{1,2}$/, '$1');
+    const priceText = (el) => stripFootnote(textWithoutUi(el)).replace(/\s+/g, ' ');
+
     function isPriceOnly(text) {
-        const t = text.trim();
+        const t = stripFootnote(text);
         return /€/.test(t) && /\d/.test(t) && t.replace(pricePartsRe, '').replace(/[\s.,:]+/g, '') === '';
     }
 
-    // Reines Preis-Element: keine eigenen Kind-Elemente außer dem eigenen Button, nur Preistext
-    const isPriceLeaf = (el) => Array.from(el.children).every(c => c.matches('.asm-wrap, sup, sub'))
+    // Reines Preis-Element: als Kinder höchstens der eigene Button, hoch- oder tiefgestellter Text
+    // und Elemente, die nur eine Ziffer enthalten (Fußnote, oder ein Betrag in eigenem Element)
+    const isPriceLeaf = (el) => Array.from(el.children)
+        .every(c => c.matches('.asm-wrap, sup, sub') || /^\s*[\d¹²³*]{1,2}\s*$/.test(c.textContent))
         && !el.closest('.asm-wrap') && isPriceOnly(textWithoutUi(el));
 
+    // Raten und Nebenkosten („Finanzierung ab 277 € mtl.“, „Versicherung ab …“) sind nicht der Preis.
+    // Nur die kurze Zeile direkt um den Betrag prüfen, nicht einen ganzen Kartenbereich.
+    const isSideCost = (el) => {
+        const around = textWithoutUi(el.parentElement || el).replace(/\s+/g, ' ').trim();
+        return around.length <= 40 && /finanzierung|versicherung|leasing|mtl\.|monatl/i.test(around);
+    };
+
     function findPriceRow(card) {
-        // Erstes Element, das nur aus Preistext besteht ...
-        const first = Array.from(card.querySelectorAll('p, span, div, strong, b')).find(isPriceLeaf);
-        if (!first) return null;
-        // ... dann hoch bis zur Zeile, die noch ausschließlich Preise enthält (z. B. Preis + Altpreis)
+        const leaves = Array.from(card.querySelectorAll('p, span, div, strong, b'))
+            .filter(el => isPriceLeaf(el) && !isSideCost(el));
+        if (!leaves.length) return null;
+        // Der Preis des Inserats ist die größte Angabe; bei gleicher Größe die erste
+        const size = (el) => parseFloat(getComputedStyle(el).fontSize) || 0;
+        const first = leaves.reduce((best, el) => (size(el) > size(best) ? el : best));
+        // Dann hoch bis zur Zeile, die noch ausschließlich Preise enthält (z. B. Preis + Altpreis)
         let row = first;
         while (row.parentElement && row.parentElement !== card && isPriceOnly(textWithoutUi(row.parentElement))) {
             row = row.parentElement;
         }
-        return { row, price: textWithoutUi(first).replace(/\s+/g, ' ').trim() };
+        return { row, price: priceText(first) };
     }
 
     function injectButtons() {
