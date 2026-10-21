@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name          Auto Super-Meldescript (mobile.de & AutoScout24)
 // @namespace     https://github.com/RainbowLabsInc/Auto_Super_Meldescript
-// @description   Fügt in den Suchergebnissen von mobile.de und AutoScout24.de an jedem Inserat einen „Melden“-Button ein. Grund und Text kommen aus selbst konfigurierbaren Bausteinen und werden in den offiziellen Melde-Dialog eingesetzt, der sich in einem kleinen Popup öffnet.
+// @description   Fügt in den Suchergebnissen von mobile.de und AutoScout24.de an jedem Inserat einen „Melden“-Button ein. Grund und Text kommen aus selbst konfigurierbaren Bausteinen und werden in das offizielle Melde-Formular eingesetzt, das sich in einem kleinen Popup öffnet. Bei AutoScout24 geht das Melden auch direkt aus der Übersicht.
 // @author        RainbowlabsInc
 // @copyright     2026, RainbowlabsInc
 // @license       MIT
-// @version       0.1.0
+// @version       0.2.0
 // @icon          https://github.com/RainbowLabsInc/Auto_Super_Meldescript/raw/main/assets/icon48.png
 // @homepage      https://github.com/RainbowLabsInc/Auto_Super_Meldescript
 // @updateURL     https://github.com/RainbowLabsInc/Auto_Super_Meldescript/raw/main/script.user.js
@@ -25,18 +25,18 @@
  *    Jede Inserats-Karte bekommt unter dem Preis einen „Melden“-Button. Ein Klick öffnet ein
  *    kleines Menü am Button: Baustein (Grund + Text) wählen, Text bei Bedarf anpassen.
  *
- * 2. Offizieller Dialog im Popup:
- *    Das Inserat öffnet sich in einem kleinen Popup-Fenster (Fenstername „asm-report“,
- *    URL-Hash #asm-report). Dasselbe Script klickt dort den Melde-Link des Inserats
- *    (bei mobile.de „Inserat beanstanden“), blendet alles außer dem Dialog aus, wählt den
- *    Grund des Bausteins und setzt den Text ein. Absenden musst du selbst. Der Status geht
- *    per postMessage an die Übersicht; nach dem Absenden schließt sich das Popup.
+ * 2. Offizielles Formular im Popup:
+ *    Ein kleines Popup-Fenster (Fenstername „asm-report“, URL-Hash #asm-report) öffnet bei
+ *    mobile.de das Inserat und klickt dort „Dieses Inserat beanstanden“, bei AutoScout24 gleich
+ *    die eigene Melde-Seite. Dasselbe Script blendet alles außer dem Formular aus, wählt den
+ *    Grund des Bausteins und setzt Text und Kontakt ein. Absenden musst du selbst. Der Status
+ *    geht per postMessage an die Übersicht; nach dem Absenden schließt sich das Popup.
  *    (Ein eingebettetes iframe statt Popup wäre unsicher: Die Seiten verbieten in der Regel
  *    das Einbetten per X-Frame-Options/CSP.)
  *
- * 3. Direkt aus der Übersicht (ohne Popup) ist vorbereitet (SITE.direct), aber noch für
- *    keine Seite eingetragen: Dafür muss die Anfrage bekannt sein, die der offizielle
- *    Dialog beim Absenden schickt.
+ * 3. Direkt aus der Übersicht (ohne Popup), wenn SITE.direct eingetragen ist: schickt dieselbe
+ *    Anfrage wie das offizielle Formular. Bisher nur für AutoScout24; bei mobile.de ist die
+ *    Anfrage noch nicht bekannt.
  *
  * Hinweis: Beide Seiten ändern ihr Frontend häufig. Das Script sucht Elemente daher zuerst
  * über feste Merkmale und fällt sonst auf Text und Struktur zurück. Alles Seitenspezifische
@@ -69,47 +69,152 @@
                 return id && /^\d+$/.test(id) ? id : null;
             },
             adLinkSelector: 'a[href*="-inserat/"], a[href*="/fahrzeuge/details.html"]',
-            // Laut Hilfe von mobile.de: Link „Inserat beanstanden“ in der rechten Spalte unter den
-            // Anbieter-Informationen. Eine feste ID ist noch nicht bekannt.
-            triggerSelectors: [],
-            triggerText: /^\s*inserat\s+beanstanden\s*$/i,
+            // Bezeichnung in Hinweisen
+            form: { nom: 'der Melde-Dialog', akk: 'den Melde-Dialog', akkOff: 'den offiziellen Melde-Dialog', dat: 'im Melde-Dialog' },
+            // Link „Dieses Inserat beanstanden“ unter den Anbieter-Informationen (Stand 10/2026,
+            // auf der Seite zweimal: Desktop und Mobil)
+            triggerSelectors: ['button[data-testid="vip-complaint-form-link"]'],
+            triggerText: /^\s*(dieses\s+)?inserat\s+beanstanden\s*$/i,
             triggerTextLoose: /inserat\s+beanstanden/i,
             // Ein neu aufgetauchter Dialog zählt nur, wenn dieser Text darin vorkommt
-            // (sonst könnte z. B. ein verspätetes Cookie-Banner als Melde-Dialog gelten)
-            dialogText: /beanstand|fahrzeug|anbieter|grund/i,
-            successText: /(vielen dank|danke für deine (meldung|beanstandung|hinweis)|beanstandung (wurde )?(gesendet|übermittelt|erhalten))/i,
+            // (sonst könnte z. B. ein verspätetes Cookie-Banner als Melde-Dialog gelten).
+            // Der Dialog heißt „Was möchtest du beanstanden?“.
+            dialogText: /beanstand/i,
+            successText: /an den mobile\.de kundenservice weitergeleitet/i,
             // Gründe im offiziellen Dialog: { id, label, path: [Beschriftungen, die nacheinander
-            // angeklickt werden] }. Noch nicht an der Live-Seite abgelesen, darum leer:
-            // Den Grund wählst du dann im Dialog selbst, der Text wird trotzdem eingesetzt.
-            reasons: [],
+            // angeklickt werden] }. Der Dialog hat drei Reiter mit je einer Liste; api ist der Wert
+            // des Auswahlfelds (name="reasonName"), Stand 10/2026.
+            reasons: [
+                ['fz-schaden', 'Angaben zum Fahrzeug', 'Beschädigung nicht gekennzeichnet', 'UNSIGNED_DAMAGED'],
+                ['fz-km', 'Angaben zum Fahrzeug', 'Kilometerstand falsch', 'INCORRECT_MILEAGE'],
+                ['fz-ez', 'Angaben zum Fahrzeug', 'Erstzulassung falsch', 'INCORRECT_REGISTRATION'],
+                ['fz-preis', 'Angaben zum Fahrzeug', 'Preisangabe falsch', 'INCORRECT_PRICE'],
+                ['fz-ausstattung', 'Angaben zum Fahrzeug', 'Ausstattung widersprüchlich', 'CONTRADICTORY_VEHICLE_DATA'],
+                ['fz-modell', 'Angaben zum Fahrzeug', 'Kategorie / Marke / Modell falsch', 'WRONG_CATEGORY'],
+                ['fz-verkauft', 'Angaben zum Fahrzeug', 'Fahrzeug bereits verkauft', 'ALREADY_SOLD'],
+                ['anb-kontakt', 'Angaben zum Anbieter', 'Kontaktdaten falsch', 'INCOMPLETE_CUSTOMERDATA'],
+                ['anb-haendler', 'Angaben zum Anbieter', 'Händler gibt sich als privater Verkäufer aus', 'HIDDEN_DEALER'],
+                ['anb-vorkasse', 'Angaben zum Anbieter', 'Vorauszahlung ohne Besichtigungsmöglichkeit', 'PREPAYMENT'],
+                ['anb-unserioes', 'Angaben zum Anbieter', 'Unseriöses Verkäuferverhalten', 'UNTRUSTWORTHY_ON_SITE'],
+                ['sonst-ersatzteil', 'Sonstiges', 'Ersatzteilangebot', 'SPARE_PART'],
+                ['sonst-mehrfach', 'Sonstiges', 'Fahrzeug wird mehrfach angeboten', 'MULTIPLE_INSERTIONS'],
+                ['sonst-kein-fz', 'Sonstiges', 'Kein Fahrzeugangebot', 'UNRELATED_INDUSTRY'],
+                ['sonst-paket', 'Sonstiges', 'Verkauf mehrerer Fahrzeuge als Paket', 'PACKAGE_DEAL'],
+                ['sonst-tausch', 'Sonstiges', 'Tauschangebot', 'TRADING_OFFER'],
+                ['sonst-andere', 'Sonstiges', 'Andere Gründe', 'OTHER_COMPLAIN_REASON'],
+            ].map(([id, tab, label, api]) => ({ id, api, label: `${tab} › ${label}`, path: [tab, label] })),
+            defaultReasons: {
+                'std-preis': 'fz-preis', 'std-verkauft': 'fz-verkauft',
+                'std-vorkasse': 'anb-vorkasse', 'std-haendler': 'anb-haendler',
+            },
             textMaxLength: 0,
+            // Direkt melden geht erst, wenn die Anfrage bekannt ist, die „Abschicken“ sendet. Sie
+            // steht in den Scripts der Seite (static.classistatic.de), die noch nicht gelesen wurden.
             direct: null,
         },
         {
             id: 'autoscout',
             label: 'AutoScout24',
             hosts: ['www.autoscout24.de'],
-            // Inseratsseite: /angebote/<name>-<uuid>
+            // Inseratsseite: /angebote/<name>-<uuid>; Melde-Seite: /report-fraud/<uuid>
             adIdFromUrl(url) {
                 let u;
                 try { u = new URL(url, location.href); } catch (e) { return null; }
-                if (!this.hosts.includes(u.hostname) || !u.pathname.startsWith('/angebote/')) return null;
+                if (!this.hosts.includes(u.hostname) || !/^\/(angebote|report-fraud)\//.test(u.pathname)) return null;
                 const m = u.pathname.match(UUID_RE);
                 return m ? m[0].toLowerCase() : null;
             },
             adLinkSelector: 'a[href*="/angebote/"]',
-            // Noch nicht an der Live-Seite abgelesen: Beschriftung des Melde-Links unbekannt,
-            // darum mehrere übliche Formulierungen
-            triggerSelectors: [],
-            triggerText: /^\s*((inserat|angebot|anzeige|fahrzeug)\s+)?(melden|beanstanden)\s*$/i,
-            triggerTextLoose: /(inserat|angebot|anzeige|verstoß)\s+(melden|beanstanden)/i,
-            dialogText: /meld|beanstand|grund|verstoß/i,
-            successText: /(vielen dank|danke für deine (meldung|hinweis)|meldung (wurde )?(gesendet|übermittelt|erhalten))/i,
-            reasons: [],
+            form: { nom: 'das Melde-Formular', akk: 'das Melde-Formular', akkOff: 'das offizielle Melde-Formular', dat: 'im Melde-Formular' },
+            // Karten der Ergebnisliste (Stand 10/2026) haben keinen Link aufs Inserat, die Seite
+            // navigiert per Script. Die Inserats-Nummer steht in data-guid.
+            cardSelector: 'article[data-guid]',
+            cardAdId: (card) => { const m = (card.dataset.guid || '').match(UUID_RE); return m ? m[0].toLowerCase() : null; },
+            // /angebote/<uuid> leitet auf die volle Adresse des Inserats weiter
+            adUrl: (adId) => `https://www.autoscout24.de/angebote/${adId}`,
+            // „Inserat melden“ auf der Inseratsseite führt auf eine eigene Melde-Seite; das Popup
+            // öffnet sie direkt
+            reportUrl: (adId) => `https://www.autoscout24.de/report-fraud/${adId}?culture=de-DE`,
+            triggerSelectors: ['button[class*="FraudReportLink_reportFraudButton"]'],
+            triggerText: /^\W*inserat\s+melden\s*$/i,
+            triggerTextLoose: /inserat\s+melden/i,
+            formSelectors: ['form#report-form'],
+            dialogText: /bedenken bezüglich dieses inserats|inserat melden/i,
+            successText: /vielen dank für (diese|deine|ihre) meldung/i,
+            successSelectors: ['#backToSearch'],
+            // Kategorie und Problem sind zwei Auswahllisten, deren Einträge erst nach dem Aufklappen
+            // im Dokument stehen ({ open }: dieses Feld anklicken)
+            reasons: [
+                ['fraud-money', 'Betrügerisches Inserat', 'Der Verkäufer verlangt Geld, bevor ich das Fahrzeug gesehen habe', 'FM'],
+                ['fraud-accident', 'Betrügerisches Inserat', 'Unfallfahrzeug, aber nicht als solches gekennzeichnet', 'D'],
+                ['fraud-dealer', 'Betrügerisches Inserat', 'Professioneller Autohändler gibt vor, ein privater Verkäufer zu sein', 'A'],
+                ['fraud-pictures', 'Betrügerisches Inserat', 'Bilder aus anderen Inseraten kopiert', 'FP'],
+                ['fraud-other', 'Betrügerisches Inserat', 'Sonstiges', 'F'],
+                ['owner-noreply', 'Eigentümer antwortet nicht / verhält sich unfreundlich', 'Verkäufer antwortet nicht', 'OR'],
+                ['owner-unfriendly', 'Eigentümer antwortet nicht / verhält sich unfreundlich', 'Verkäufer verhält sich unfreundlich', 'OU'],
+                ['owner-other', 'Eigentümer antwortet nicht / verhält sich unfreundlich', 'Sonstiges', 'O'],
+                ['info-accident', 'Das Inserat enthält falsche Informationen', 'Unfallfahrzeug, aber nicht als solches gekennzeichnet', 'D'],
+                ['info-mileage', 'Das Inserat enthält falsche Informationen', 'Falsche Laufleistung', 'KM'],
+                ['info-price', 'Das Inserat enthält falsche Informationen', 'Falscher Preis', 'P'],
+                ['info-model', 'Das Inserat enthält falsche Informationen', 'Falsche Marke oder Modell', 'B'],
+                ['info-other', 'Das Inserat enthält falsche Informationen', 'Sonstiges', 'I'],
+                ['other', 'Sonstiges', '', 'F'],
+            ].map(([id, category, problem, api]) => ({
+                id, api,
+                label: problem ? `${category} › ${problem}` : category,
+                path: problem
+                    ? [{ open: '#issue-category' }, category, { open: '#abuse-sub-category' }, problem]
+                    : [{ open: '#issue-category' }, category],
+            })),
+            defaultReasons: {
+                'std-preis': 'info-price', 'std-angaben': 'info-other', 'std-verkauft': 'info-other',
+                'std-vorkasse': 'fraud-money', 'std-haendler': 'fraud-dealer', 'std-betrug': 'fraud-other',
+            },
             textMaxLength: 0,
-            direct: null,
+            // Direkt aus der Übersicht: dieselbe Anfrage, die das Formular beim Absenden schickt
+            // (abgelesen aus dem Script der Melde-Seite, Stand 10/2026). Ohne Login und ohne Token.
+            direct: {
+                confirmText: 'Ich erkläre, dass ich in gutem Glauben handle und meine Meldung so genau und vollständig ist wie möglich.',
+                async send(info, { reason, text, email, name }) {
+                    const res = await fetch('/as24-search-funnel/abuse-report/submit-report', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            listingGuid: cleanLikeAs24(info.adId),
+                            reasonId: reason.api,
+                            email: cleanLikeAs24(email),
+                            comment: cleanLikeAs24(text),
+                            name: cleanLikeAs24(name),
+                            clientId: 'web-app',
+                        }),
+                    });
+                    return { code: res.status, detail: res.ok ? '' : await responseDetail(res) };
+                },
+            },
         },
     ];
+
+    // Dieselbe Bereinigung, die das Melde-Formular von AutoScout24 vor dem Absenden auf jedes
+    // Feld anwendet (entfernt HTML, Script-Reste und SQL-artige Muster)
+    function cleanLikeAs24(value) {
+        let r = String(value || '');
+        if (!r) return '';
+        [/VALUES\s*\([^)]{0,1000}\)/gi, /^[ \t]*--[^\n]{0,1000}/gm, /\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\//g, /;\s*(SELECT|INSERT|UPDATE|DELETE|DROP)/gi,
+            /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, /javascript:/gi, /data:[^;]+;/gi,
+            /on\w+\s*=\s*(?:"[^"]{0,1000}"|'[^']{0,1000}'|[^\s>]{0,1000})/gi, /<[^>]{0,1000}>/g, /[<>`]/g, /\${.*?}/g, /@import/gi, /eval\s*\(.*?\)/gi,
+        ].forEach(re => { r = r.replace(re, ''); });
+        return r.replace(/;\s*$/g, '').replace(/'\s*;\s*'/g, '').replace(/"\s*;\s*"/g, '').replace(/`\s*;\s*`/g, '');
+    }
+
+    // Antworttext für die Fehleranzeige (gekürzt, ohne HTML-Tags)
+    async function responseDetail(res) {
+        try {
+            return (await res.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+        } catch (e) {
+            return '';
+        }
+    }
 
     const CONFIG = {
         hash: '#asm-report',
@@ -120,6 +225,8 @@
         popupStateKey: 'asm-popup-state',
         // Wie lange auf den Melde-Link / -Dialog gewartet wird
         triggerTimeoutMs: 12000,
+        // Wie lange auf einer Melde-Seite auf das Formular gewartet wird
+        formTimeoutMs: 8000,
         // Abstand zwischen Klick-Versuchen auf den Melde-Link
         clickRetryMs: 1500,
         // Wie lange das Popup auf den Auftrag (Baustein) aus der Übersicht wartet
@@ -145,20 +252,25 @@
         defaultSettings: {
             // 'menu': Menü mit Bausteinen; 'dialog': gleich den offiziellen Dialog öffnen
             clickAction: 'menu',
-            // Wird nur in ein leeres E-Mail-Feld im Melde-Dialog eingetragen
+            // Werden nur in leere Felder des Melde-Formulars eingetragen bzw. beim direkten Melden mitgeschickt
             contact: '',
+            name: '',
         },
         // Fertige Bausteine; Platzhalter: {titel}, {preis}, {id}, {link}. Feste IDs, damit der
         // zuletzt benutzte Baustein auch ohne gespeicherte eigene Bausteine wiedererkannt wird.
-        // reasonId '' = Grund im Dialog selbst wählen.
+        // Den Grund je Seite legt SITE.defaultReasons fest; ohne Grund wählst du ihn im Dialog.
         defaultTemplates: [
-            { id: 'std-preis', name: 'Preis stimmt nicht', reasonId: '',
+            { id: 'std-preis', name: 'Preis stimmt nicht',
                 text: 'Der angegebene Preis ({preis}) ist nicht der tatsächliche Verkaufspreis. Laut Beschreibung wird ein anderer Preis verlangt.' },
-            { id: 'std-angaben', name: 'Falsche Fahrzeugangaben', reasonId: '',
+            { id: 'std-angaben', name: 'Falsche Fahrzeugangaben',
                 text: 'Die Angaben zum Fahrzeug (z. B. Kilometerstand, Erstzulassung, Zustand oder Ausstattung) passen nicht zu Bildern und Beschreibung: ' },
-            { id: 'std-verkauft', name: 'Bereits verkauft', reasonId: '',
+            { id: 'std-verkauft', name: 'Bereits verkauft',
                 text: 'Das Fahrzeug ist laut Anbieter bereits verkauft, das Inserat ist aber weiterhin online.' },
-            { id: 'std-betrug', name: 'Verdacht auf Betrug', reasonId: '',
+            { id: 'std-vorkasse', name: 'Vorkasse verlangt',
+                text: 'Der Anbieter verlangt Geld (z. B. Anzahlung, Reservierungs- oder Transportgebühr), bevor man das Fahrzeug besichtigen kann.' },
+            { id: 'std-haendler', name: 'Händler gibt sich als privat aus',
+                text: 'Das Fahrzeug wird als Privatverkauf angeboten, der Anbieter ist aber offensichtlich gewerblicher Händler: ' },
+            { id: 'std-betrug', name: 'Verdacht auf Betrug',
                 text: 'Das Inserat wirkt betrügerisch: ' },
         ],
     };
@@ -213,6 +325,7 @@
     }
 
     const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     function loadReported() {
         const data = load(CONFIG.reportedKey(SITE.id), {});
@@ -331,6 +444,10 @@
         const allForms = () => Array.from(document.querySelectorAll('form, [role="radiogroup"]'));
 
         function findDialog() {
+            for (const sel of SITE.formSelectors || []) {
+                const form = Array.from(document.querySelectorAll(sel)).find(isVisible);
+                if (form) return form;
+            }
             const dialog = allDialogs().find(el => !preExisting.has(el) && isVisible(el) && SITE.dialogText.test(el.textContent));
             if (dialog) return dialog;
             // Fallback: neu aufgetauchtes Formular mit Eingabefeldern rund ums Melden
@@ -356,6 +473,7 @@
         // Erfolgsmeldung im Dialog oder in einem Hinweis der Seite. Nicht im ganzen Inserat
         // suchen: Dort kann „Vielen Dank“ auch in der Beschreibung des Anbieters stehen.
         function successVisible(dialog) {
+            if ((SITE.successSelectors || []).some(sel => Array.from(document.querySelectorAll(sel)).some(isVisible))) return true;
             const places = [dialog, ...document.querySelectorAll('[role="status"], [role="alert"], [aria-live]')];
             return places.some(p => p && isVisible(p) && SITE.successText.test(p.innerText || ''));
         }
@@ -391,6 +509,7 @@
                 finished = true;
                 obs.disconnect();
                 clearTimeout(prefillTimer);
+                clearInterval(prefillPoll);
                 document.removeEventListener('click', onClick, true);
                 document.removeEventListener('submit', onSubmit, true);
                 document.documentElement.classList.remove('asm-focus');
@@ -403,9 +522,13 @@
                 const result = prefill.step(dialog);
                 if (!result.done && !force) return;
                 filledReported = true;
+                clearInterval(prefillPoll);
                 post('filled', { missing: result.missing });
             };
             const prefillTimer = setTimeout(() => reportFilled(true), CONFIG.prefillReportMs);
+            // Auch ohne Änderung im Dokument weiter versuchen (z. B. wenn eine Auswahlliste auf den
+            // ersten Klick noch nicht aufging, weil die Seite noch lädt)
+            const prefillPoll = setInterval(() => { if (!submitted && !closing) reportFilled(false); }, 400);
 
             // Klick auf „Absenden“ o. Ä. im Dialog merken
             const onClick = (e) => {
@@ -468,15 +591,16 @@
         (async () => {
             const job = await receiveJob();
 
-            // Nach einem Seitenwechsel im Popup: Formular schon da, oder Erfolgsseite nach dem Absenden?
-            if (state.clicked) {
+            // Nach einem Seitenwechsel im Popup oder auf einer eigenen Melde-Seite (SITE.reportUrl):
+            // Formular schon da, oder Erfolgsseite nach dem Absenden?
+            if (state.clicked || !isDetailPage || SITE.reportUrl) {
                 if (state.submitted && pageShowsSuccess()) {
                     post('success');
                     post('closed', { success: true });
                     if (target) setTimeout(() => window.close(), 1500);
                     return;
                 }
-                const form = await waitFor(findDialog, CONFIG.triggerTimeoutMs);
+                const form = await waitFor(findDialog, CONFIG.formTimeoutMs);
                 if (form) { showDialog(form, job); return; }
             }
 
@@ -510,9 +634,17 @@
     // „Absenden“. step() wird bei jeder Änderung im Dialog erneut aufgerufen, damit auch
     // Auswahlfelder späterer Schritte ausgefüllt werden.
     function createPrefill(job) {
+        // Auswahl: Beschriftungen, die nacheinander angeklickt werden, oder { open: Selektor }
+        // für eine Auswahlliste, die erst aufgeklappt werden muss
         const pending = (job.choices || []).filter(Boolean).slice();
-        let textDone = !job.text;
-        let contactDone = !job.contact;
+        // Felder, die nur eingetragen werden, wenn sie leer sind: [Selektor, Wert, Name für den Hinweis]
+        const fields = [
+            ['textarea', job.text, 'Text'],
+            // mobile.de: type="text" name="email"
+            ['input[type="email"], input[name="email"]', job.contact, ''],
+            ['input[name="name"], input[autocomplete="name"]', job.name, ''],
+        ].filter(f => f[1]);
+        let lastOpen = 0;
 
         const choiceSelector = 'label, button, [role="radio"], [role="option"], [role="button"], [role="menuitem"], [role="tab"], li, a';
 
@@ -544,32 +676,32 @@
         return {
             step(dialog) {
                 while (pending.length) {
-                    const hit = findChoice(dialog, pending[0]);
+                    const cur = pending[0];
+                    if (typeof cur === 'object') {
+                        // Aufgeklappt, sobald der nächste Eintrag zu sehen ist
+                        if (typeof pending[1] === 'string' && findChoice(dialog, pending[1])) { pending.shift(); continue; }
+                        const opener = Array.from(dialog.querySelectorAll(cur.open)).find(isVisible);
+                        if (opener && Date.now() - lastOpen > 700) {
+                            lastOpen = Date.now();
+                            opener.click();
+                        }
+                        break;
+                    }
+                    const hit = findChoice(dialog, cur);
                     if (!hit) break;
                     activate(hit);
                     pending.shift();
                 }
-                if (!textDone) {
-                    const field = Array.from(dialog.querySelectorAll('textarea')).find(isVisible);
-                    if (field) {
-                        // Nichts überschreiben, was schon drinsteht
-                        if (!field.value.trim()) {
-                            const max = field.maxLength > 0 ? field.maxLength : Infinity;
-                            setFieldValue(field, job.text.slice(0, max));
-                        }
-                        textDone = true;
-                    }
+                for (let i = fields.length - 1; i >= 0; i--) {
+                    const [sel, value] = fields[i];
+                    const field = Array.from(dialog.querySelectorAll(sel)).find(isVisible);
+                    if (!field) continue;
+                    // Nichts überschreiben, was schon drinsteht
+                    if (!field.value.trim()) setFieldValue(field, field.maxLength > 0 ? value.slice(0, field.maxLength) : value);
+                    fields.splice(i, 1);
                 }
-                if (!contactDone) {
-                    const field = Array.from(dialog.querySelectorAll('input[type="email"]')).find(isVisible);
-                    if (field) {
-                        if (!field.value.trim()) setFieldValue(field, job.contact);
-                        contactDone = true;
-                    }
-                }
-                const missing = [...pending];
-                if (!textDone) missing.push('Text');
-                return { done: !missing.length && contactDone, missing };
+                const missing = [...pending.filter(c => typeof c === 'string'), ...fields.map(f => f[2]).filter(Boolean)];
+                return { done: !pending.length && !fields.length, missing };
             },
         };
     }
@@ -599,8 +731,9 @@
 
     function injectOverviewStyles() {
         overviewStyle.textContent = `
-            /* Steht die Karte selbst als Flex-Zeile, darf der Button nicht in die Höhe gezogen werden */
-            .asm-wrap { display: flex; justify-content: flex-end; align-items: center; align-self: flex-end; margin: 6px 0 0; }
+            /* Steht die Karte selbst als Flex-Zeile, darf der Button nicht in die Höhe gezogen werden.
+               z-index: AutoScout24 legt beim Überfahren einen Link über die ganze Karte (z-index 1). */
+            .asm-wrap { position: relative; z-index: 2; display: flex; justify-content: flex-end; align-items: center; align-self: flex-end; margin: 6px 0 0; }
             .asm-btn {
                 flex: none;
                 display: inline-flex; align-items: center; gap: 6px;
@@ -697,6 +830,9 @@
             .asm-hint { margin: 0; font-size: 12px; color: #6b6b6b; }
             .asm-hint code { font-size: 12px; background: #f2f1ee; padding: 0 3px; border-radius: 3px; }
             .asm-section { margin: 4px 0 0; font-size: 13px; font-weight: 700; }
+            .asm-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+            .asm-confirm { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #444; cursor: pointer; }
+            .asm-confirm input { margin: 2px 0 0; accent-color: #c62828; flex: none; }
             .asm-radio { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: pointer; }
             .asm-radio input { margin: 2px 0 0; accent-color: #c62828; flex: none; }
         `;
@@ -705,10 +841,14 @@
 
     function findAdCards() {
         const cards = new Set();
+        // Karten mit fester Kennung (Inserats-Nummer als Attribut)
+        if (SITE.cardSelector) {
+            document.querySelectorAll(SITE.cardSelector).forEach(card => { if (SITE.cardAdId(card)) cards.add(card); });
+        }
         // Vom Inserats-Link so weit nach oben laufen, wie der Container nur Links auf genau
         // dieses eine Inserat enthält -> das ist die Karte.
         document.querySelectorAll(SITE.adLinkSelector).forEach(link => {
-            if (link.closest('.asm-menu')) return;
+            if (link.closest('.asm-menu') || (SITE.cardSelector && link.closest(SITE.cardSelector))) return;
             // Karte schon versorgt? Nur überspringen, solange ihr Button noch da ist
             const done = link.closest('[data-asm-injected]');
             if (done && done.querySelector('.asm-btn')) return;
@@ -736,8 +876,9 @@
     function getCardInfo(card) {
         const links = card.matches(SITE.adLinkSelector) ? [card] : Array.from(card.querySelectorAll(SITE.adLinkSelector));
         const link = links.find(a => SITE.adIdFromUrl(a.href));
-        const href = link ? link.href.split('#')[0] : null;
-        const adId = href ? SITE.adIdFromUrl(href) : null;
+        const fixedId = SITE.cardSelector && card.matches(SITE.cardSelector) ? SITE.cardAdId(card) : null;
+        const href = fixedId ? SITE.adUrl(fixedId) : link ? link.href.split('#')[0] : null;
+        const adId = fixedId || (href ? SITE.adIdFromUrl(href) : null);
         const titleEl = card.querySelector('h2, h3, h4');
         const title = (titleEl ? titleEl.textContent : (link ? link.getAttribute('title') || link.textContent : ''))
             .replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -782,8 +923,14 @@
         ensureOverviewStyles();
 
         findAdCards().forEach(card => {
-            // Schon da? Baut die Seite die Karte neu auf, fehlt der Button: dann neu einsetzen
-            if (card.dataset.asmInjected && card.querySelector('.asm-btn')) return;
+            // Schon da? Baut die Seite die Karte neu auf, fehlt der Button: dann neu einsetzen.
+            // Verwendet die Seite eine Karte für ein anderes Inserat weiter, den alten Button ersetzen.
+            const existing = card.querySelector('.asm-btn');
+            if (existing) {
+                const fixedId = SITE.cardSelector && card.matches(SITE.cardSelector) ? SITE.cardAdId(card) : null;
+                if (!fixedId || existing.dataset.adid === fixedId) return;
+                existing.closest('.asm-wrap').remove();
+            }
             const info = getCardInfo(card);
             if (!info.href || !info.adId) return;
 
@@ -852,7 +999,7 @@
     }
 
     function defaultTemplates() {
-        return CONFIG.defaultTemplates.map(t => ({ ...t }));
+        return CONFIG.defaultTemplates.map(t => ({ ...t, reasonId: SITE.defaultReasons[t.id] || '' }));
     }
 
     function fillPlaceholders(text, info) {
@@ -962,14 +1109,37 @@
         const lastId = load(CONFIG.lastTemplateKey(SITE.id), '');
         let selected = templates.find(t => t.id === lastId) || templates[0];
 
+        // Direkt melden (ohne Popup), wenn für die Seite bekannt
+        const direct = SITE.direct;
+        const settings = loadSettings();
+        let sending = false;
+
         const max = SITE.textMaxLength;
         const text = el('textarea', { className: 'asm-input', rows: 4, maxLength: max || null });
         const counter = el('span', { className: 'asm-counter' });
-        const goBtn = el('button', { type: 'button', className: 'asm-action', dataset: { primary: '' } }, 'Im Melde-Dialog einsetzen');
+        const email = el('input', { className: 'asm-input', type: 'email', value: settings.contact, autocomplete: 'email', placeholder: 'für Rückfragen' });
+        const name = el('input', { className: 'asm-input', type: 'text', value: settings.name, autocomplete: 'name' });
+        const confirm = el('input', { type: 'checkbox' });
+        const status = el('p', { className: 'asm-note', role: 'status', hidden: true });
+        const noReason = el('p', { className: 'asm-hint', hidden: true },
+            'Dieser Baustein hat keinen Grund. Zum direkten Melden über ⚙ einen Grund zuweisen, oder im Formular melden.');
+        const goLabel = direct ? 'Im Formular prüfen' : `I${SITE.form.dat.slice(1)} einsetzen`;
+        const goBtn = el('button', { type: 'button', className: 'asm-action', dataset: direct ? {} : { primary: '' } }, goLabel);
+        const sendBtn = direct ? el('button', { type: 'button', className: 'asm-action', dataset: { primary: '' } }, 'Melden') : null;
 
+        const showStatus = (msg, kind) => {
+            status.hidden = !msg;
+            status.textContent = msg || '';
+            if (kind) status.dataset.kind = kind; else delete status.dataset.kind;
+        };
+        const emailOk = () => !email.value.trim() || EMAIL_RE.test(email.value.trim());
         const update = () => {
             counter.textContent = max ? `${text.value.length}/${max}` : `${text.value.length} Zeichen`;
-            goBtn.disabled = !selected || !text.value.trim();
+            goBtn.disabled = !selected || !text.value.trim() || !emailOk();
+            if (!direct) return;
+            const reason = selected && knownReason(selected.reasonId);
+            noReason.hidden = !selected || !!reason;
+            sendBtn.disabled = sending || !reason || !text.value.trim() || !emailOk() || !confirm.checked;
         };
         const applyTemplate = (t) => {
             selected = t;
@@ -993,13 +1163,52 @@
             const job = {
                 choices: reason ? reason.path : [],
                 text: text.value.trim(),
-                contact: loadSettings().contact.trim(),
+                contact: email.value.trim(),
+                name: name.value.trim(),
             };
             save(CONFIG.lastTemplateKey(SITE.id), selected.id);
             closeMenu();
             // Muss direkt im Klick-Handler passieren, sonst blockiert der Browser das Popup
             openReportPopup(info, btn, job);
         });
+
+        if (direct) {
+            [email, name].forEach(f => f.addEventListener('input', update));
+            confirm.addEventListener('change', update);
+            sendBtn.addEventListener('click', async () => {
+                if (sendBtn.disabled) return;
+                sending = true;
+                update();
+                showStatus('Meldung wird gesendet …');
+                const template = selected;
+                const reason = knownReason(template.reasonId);
+                const contact = { email: email.value.trim(), name: name.value.trim() };
+                let code = 0, detail = '';
+                try {
+                    ({ code, detail } = await direct.send(info, { reason, text: text.value.trim(), ...contact }));
+                } catch (e) { code = 0; }
+                // Das Menü kann inzwischen geschlossen sein (Escape, Klick daneben): Das Ergebnis trotzdem festhalten
+                const open = !!menu && menu.root === root;
+                if (code >= 200 && code < 300) {
+                    save(CONFIG.lastTemplateKey(SITE.id), template.id);
+                    save(CONFIG.settingsKey, { ...loadSettings(), contact: contact.email, name: contact.name });
+                    markReported(info.adId);
+                    if (open) closeMenu();
+                    showToast(`Inserat gemeldet: ${reason.label}`, 'ok', [], 4000);
+                    return;
+                }
+                if (!open) {
+                    showToast(`Meldung für „${info.title || 'Inserat ' + info.adId}“ nicht gesendet${code ? ` (Status ${code})` : ' (Netzwerkfehler)'}. Bitte erneut versuchen.`, 'warn', [], 8000);
+                    return;
+                }
+                sending = false;
+                update();
+                const server = detail ? ` Antwort von ${SITE.label}: „${detail}“` : '';
+                showStatus(code === 0
+                    ? `Die Meldung konnte nicht gesendet werden (Netzwerkfehler). Du kannst es erneut versuchen oder ${SITE.form.akk} nutzen.`
+                    : `${SITE.label} hat die Meldung abgelehnt (Status ${code}). Bitte ${SITE.form.akk} nutzen.${server}`, 'error');
+            });
+        }
 
         const reportedAt = loadReported()[info.adId];
         const body = el('div', { className: 'asm-menu-body' },
@@ -1009,16 +1218,24 @@
                 el('legend', { className: 'asm-hint', style: 'margin-bottom:4px' }, 'Baustein'),
                 options),
             el('label', { className: 'asm-field' }, el('span', {}, 'Text der Meldung'), text, counter),
-            el('p', { className: 'asm-hint' },
-                `Das Inserat öffnet sich in einem kleinen Fenster. Dort öffnet das Script den Melde-Dialog von ${SITE.label}`
-                + (SITE.reasons.length ? ', wählt den Grund' : '')
-                + ' und setzt den Text ein. Prüfen und absenden machst du selbst.'),
+            direct ? el('div', { className: 'asm-pair' },
+                el('label', { className: 'asm-field' }, el('span', {}, 'E-Mail (optional)'), email),
+                el('label', { className: 'asm-field' }, el('span', {}, 'Name (optional)'), name)) : null,
+            direct ? el('label', { className: 'asm-confirm' }, confirm, el('span', {}, direct.confirmText)) : null,
+            noReason,
+            status,
+            el('p', { className: 'asm-hint' }, direct
+                ? `„Melden“ schickt die Meldung direkt an ${SITE.label}, genau wie ${SITE.form.nom}. „${goLabel}“ öffnet stattdessen ${SITE.form.akk} in einem kleinen Fenster, mit Grund und Text eingesetzt; abschicken machst du dort selbst.`
+                : `Das Inserat öffnet sich in einem kleinen Fenster. Dort öffnet das Script ${SITE.form.akk} von ${SITE.label}`
+                    + (SITE.reasons.length ? ', wählt den Grund' : '')
+                    + ' und setzt den Text ein. Prüfen und absenden machst du selbst.'),
             el('div', { className: 'asm-actions' },
                 el('span', { className: 'asm-spacer' }),
                 el('button', { type: 'button', className: 'asm-action', onclick: closeMenu }, 'Abbrechen'),
-                goBtn),
+                goBtn,
+                sendBtn),
             el('button', { type: 'button', className: 'asm-link', onclick: () => { closeMenu(); openReportPopup(info, btn, null); } },
-                'Ohne Baustein: nur den offiziellen Melde-Dialog öffnen'));
+                `Ohne Baustein: nur ${SITE.form.akkOff} öffnen`));
 
         const gear = el('button', { type: 'button', className: 'asm-icon-btn', 'aria-label': 'Bausteine und Einstellungen',
             title: 'Bausteine und Einstellungen', onclick: renderSettingsView }, '⚙');
@@ -1043,6 +1260,8 @@
             el('span', {}, label));
         const contact = el('input', { className: 'asm-input', type: 'email', value: settings.contact, autocomplete: 'email',
             placeholder: 'optional', oninput: (e) => { settings.contact = e.target.value; } });
+        const userName = el('input', { className: 'asm-input', type: 'text', value: settings.name, autocomplete: 'name',
+            placeholder: 'optional', oninput: (e) => { settings.name = e.target.value; } });
 
         const drawList = () => {
             listBox.replaceChildren(...list.map((t, i) => {
@@ -1076,8 +1295,9 @@
             const clean = list.map(t => ({ ...t, name: t.name.trim(), text: t.text.trim() }));
             if (clean.some(t => !t.name || !t.text)) return showError('Jeder Baustein braucht einen Namen und einen Text.');
             const contactValue = settings.contact.trim();
-            if (contactValue && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactValue)) return showError('Bitte eine gültige E-Mail-Adresse eintragen oder das Feld leer lassen.');
-            if (!save(CONFIG.templatesKey(SITE.id), clean) || !save(CONFIG.settingsKey, { ...settings, contact: contactValue })) {
+            if (contactValue && !EMAIL_RE.test(contactValue)) return showError('Bitte eine gültige E-Mail-Adresse eintragen oder das Feld leer lassen.');
+            if (!save(CONFIG.templatesKey(SITE.id), clean)
+                || !save(CONFIG.settingsKey, { ...settings, contact: contactValue, name: settings.name.trim() })) {
                 return showError('Speichern nicht möglich (Speicher nicht verfügbar).');
             }
             back();
@@ -1087,10 +1307,12 @@
         const body = el('div', { className: 'asm-menu-body' },
             el('p', { className: 'asm-section' }, 'Klick auf „Melden“'),
             clickRadio('menu', 'Menü mit Bausteinen öffnen'),
-            clickRadio('dialog', 'Gleich den offiziellen Melde-Dialog öffnen (ohne Baustein)'),
-            el('label', { className: 'asm-field' },
-                el('span', {}, 'E-Mail für Rückmeldungen (gilt für mobile.de und AutoScout24)'), contact,
-                el('span', { className: 'asm-hint' }, 'Wird nur in ein leeres E-Mail-Feld im Melde-Dialog eingetragen. Leer lassen, wenn du anonym melden willst.')),
+            clickRadio('dialog', `Gleich ${SITE.form.akkOff} öffnen (ohne Baustein)`),
+            el('p', { className: 'asm-section' }, 'Kontakt (gilt für mobile.de und AutoScout24)'),
+            el('div', { className: 'asm-pair' },
+                el('label', { className: 'asm-field' }, el('span', {}, 'E-Mail für Rückmeldungen'), contact),
+                el('label', { className: 'asm-field' }, el('span', {}, 'Name'), userName)),
+            el('p', { className: 'asm-hint' }, 'Wird nur in leere Felder des Melde-Formulars eingetragen bzw. beim direkten Melden mitgeschickt. Leer lassen, wenn du anonym melden willst.'),
             el('p', { className: 'asm-section' }, `Bausteine für ${SITE.label}`),
             el('p', { className: 'asm-hint' }, 'Platzhalter im Text: ',
                 el('code', {}, '{titel}'), ' ', el('code', {}, '{preis}'), ' ', el('code', {}, '{id}'), ' ', el('code', {}, '{link}'),
@@ -1127,7 +1349,8 @@
     function openReportPopup(info, btn, job) {
         finishCurrent();
 
-        const url = info.href.split('#')[0] + CONFIG.hash;
+        // Eigene Melde-Seite, wenn bekannt; sonst das Inserat, dort wird der Melde-Link geklickt
+        const url = (SITE.reportUrl ? SITE.reportUrl(info.adId) : info.href.split('#')[0]) + CONFIG.hash;
         const w = CONFIG.popupWidth, h = CONFIG.popupHeight;
         const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - w) / 2));
         const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - h) / 2));
