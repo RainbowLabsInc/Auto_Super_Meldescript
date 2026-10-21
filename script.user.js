@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name          Auto Super-Meldescript (mobile.de & AutoScout24)
 // @namespace     https://github.com/RainbowLabsInc/Auto_Super_Meldescript
-// @description   Fügt in den Suchergebnissen von mobile.de und AutoScout24.de an jedem Inserat einen „Melden“-Button ein. Grund und Text kommen aus selbst konfigurierbaren Bausteinen und werden in das offizielle Melde-Formular eingesetzt, das sich in einem kleinen Popup öffnet. Bei AutoScout24 geht das Melden auch direkt aus der Übersicht.
+// @description   Fügt in den Suchergebnissen von mobile.de und AutoScout24.de an jedem Inserat einen „Melden“-Button ein. Grund und Text kommen aus selbst konfigurierbaren Bausteinen und werden in das offizielle Melde-Formular eingesetzt, das sich in einem kleinen Popup öffnet. Wahlweise geht das Melden auch direkt aus der Übersicht.
 // @author        RainbowlabsInc
 // @copyright     2026, RainbowlabsInc
 // @license       MIT
-// @version       0.2.0
+// @version       0.3.0
 // @icon          https://github.com/RainbowLabsInc/Auto_Super_Meldescript/raw/main/assets/icon48.png
 // @homepage      https://github.com/RainbowLabsInc/Auto_Super_Meldescript
 // @updateURL     https://github.com/RainbowLabsInc/Auto_Super_Meldescript/raw/main/script.user.js
@@ -35,8 +35,7 @@
  *    das Einbetten per X-Frame-Options/CSP.)
  *
  * 3. Direkt aus der Übersicht (ohne Popup), wenn SITE.direct eingetragen ist: schickt dieselbe
- *    Anfrage wie das offizielle Formular. Bisher nur für AutoScout24; bei mobile.de ist die
- *    Anfrage noch nicht bekannt.
+ *    Anfrage wie das offizielle Formular, erst nach Bestätigung „in gutem Glauben“.
  *
  * Hinweis: Beide Seiten ändern ihr Frontend häufig. Das Script sucht Elemente daher zuerst
  * über feste Merkmale und fällt sonst auf Text und Struktur zurück. Alles Seitenspezifische
@@ -104,13 +103,36 @@
                 ['sonst-andere', 'Sonstiges', 'Andere Gründe', 'OTHER_COMPLAIN_REASON'],
             ].map(([id, tab, label, api]) => ({ id, api, label: `${tab} › ${label}`, path: [tab, label] })),
             defaultReasons: {
-                'std-preis': 'fz-preis', 'std-verkauft': 'fz-verkauft',
-                'std-vorkasse': 'anb-vorkasse', 'std-haendler': 'anb-haendler',
+                'std-preis': 'fz-preis', 'std-angaben': 'sonst-andere', 'std-verkauft': 'fz-verkauft',
+                'std-vorkasse': 'anb-vorkasse', 'std-haendler': 'anb-haendler', 'std-betrug': 'sonst-andere',
             },
             textMaxLength: 0,
-            // Direkt melden geht erst, wenn die Anfrage bekannt ist, die „Abschicken“ sendet. Sie
-            // steht in den Scripts der Seite (static.classistatic.de), die noch nicht gelesen wurden.
-            direct: null,
+            // Direkt aus der Übersicht: dieselbe Anfrage, die „Abschicken“ im Dialog sendet (abgelesen
+            // aus dem Script der Inseratsseite, Stand 10/2026). Der Dialog schickt sie ohne Cookies
+            // an www.mobile.de, also ohne Login; „in gutem Glauben“ prüft nur der Dialog selbst.
+            // Ein Namensfeld gibt es nicht.
+            direct: {
+                confirmText: 'Ich erkläre, dass ich in gutem Glauben handle und meine Meldung so genau und vollständig ist wie möglich.',
+                withName: false,
+                async send(info, { reason, text, email }) {
+                    const res = await fetch('https://www.mobile.de/api/blame', {
+                        method: 'PUT',
+                        headers: {
+                            'content-type': 'application/json',
+                            'x-mobile-api-version': '12',
+                            'x-mobile-client': 'de.mobile.consumer-webapp',
+                        },
+                        // Leere Felder lässt der Dialog weg
+                        body: JSON.stringify({
+                            adId: Number(info.adId),
+                            reasonName: reason.api,
+                            ...(text ? { message: text } : {}),
+                            ...(email ? { email } : {}),
+                        }),
+                    });
+                    return { code: res.status, detail: res.ok ? '' : await responseDetail(res) };
+                },
+            },
         },
         {
             id: 'autoscout',
@@ -175,6 +197,7 @@
             // (abgelesen aus dem Script der Melde-Seite, Stand 10/2026). Ohne Login und ohne Token.
             direct: {
                 confirmText: 'Ich erkläre, dass ich in gutem Glauben handle und meine Meldung so genau und vollständig ist wie möglich.',
+                withName: true,
                 async send(info, { reason, text, email, name }) {
                     const res = await fetch('/as24-search-funnel/abuse-report/submit-report', {
                         method: 'POST',
@@ -1218,9 +1241,9 @@
                 el('legend', { className: 'asm-hint', style: 'margin-bottom:4px' }, 'Baustein'),
                 options),
             el('label', { className: 'asm-field' }, el('span', {}, 'Text der Meldung'), text, counter),
-            direct ? el('div', { className: 'asm-pair' },
+            direct ? el('div', { className: direct.withName ? 'asm-pair' : '' },
                 el('label', { className: 'asm-field' }, el('span', {}, 'E-Mail (optional)'), email),
-                el('label', { className: 'asm-field' }, el('span', {}, 'Name (optional)'), name)) : null,
+                direct.withName ? el('label', { className: 'asm-field' }, el('span', {}, 'Name (optional)'), name) : null) : null,
             direct ? el('label', { className: 'asm-confirm' }, confirm, el('span', {}, direct.confirmText)) : null,
             noReason,
             status,
@@ -1311,7 +1334,7 @@
             el('p', { className: 'asm-section' }, 'Kontakt (gilt für mobile.de und AutoScout24)'),
             el('div', { className: 'asm-pair' },
                 el('label', { className: 'asm-field' }, el('span', {}, 'E-Mail für Rückmeldungen'), contact),
-                el('label', { className: 'asm-field' }, el('span', {}, 'Name'), userName)),
+                el('label', { className: 'asm-field' }, el('span', {}, 'Name (nur AutoScout24)'), userName)),
             el('p', { className: 'asm-hint' }, 'Wird nur in leere Felder des Melde-Formulars eingetragen bzw. beim direkten Melden mitgeschickt. Leer lassen, wenn du anonym melden willst.'),
             el('p', { className: 'asm-section' }, `Bausteine für ${SITE.label}`),
             el('p', { className: 'asm-hint' }, 'Platzhalter im Text: ',
